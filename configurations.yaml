@@ -1,0 +1,124 @@
+%YAML:1.0
+---
+timestamp: "20250502-113801"
+total_configs: 10
+config_1_position: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [ 476.0609, 18.495999999999999, 299.22899999999998 ]
+config_1_quaternion: !!opencv-matrix
+   rows: 4
+   cols: 1
+   dt: d
+   data: [ 0.61450000000000005, -0.52090000000000003,
+       0.54269999999999996, -0.23799999999999999 ]
+config_1_image: "calib_images/calib_1.jpg"
+config_2_position: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [ 476.17419999999998, 15.379799999999999, 303.29169999999999 ]
+config_2_quaternion: !!opencv-matrix
+   rows: 4
+   cols: 1
+   dt: d
+   data: [ 0.60340000000000005, -0.52580000000000005,
+       0.53349999999999997, -0.27339999999999998 ]
+config_2_image: "calib_images/calib_2.jpg"
+config_3_position: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [ 457.44369999999998, -4.5633999999999997, 351.5736 ]
+config_3_quaternion: !!opencv-matrix
+   rows: 4
+   cols: 1
+   dt: d
+   data: [ 0.65590000000000004, -0.57430000000000003,
+       0.46129999999999999, -0.1648 ]
+config_3_image: "calib_images/calib_3.jpg"
+config_4_position: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [ 516.75559999999996, -1.1223000000000001, 331.20979999999997 ]
+config_4_quaternion: !!opencv-matrix
+   rows: 4
+   cols: 1
+   dt: d
+   data: [ 0.58420000000000005, -0.44069999999999998,
+       0.59109999999999996, -0.33950000000000002 ]
+config_4_image: "calib_images/calib_4.jpg"
+config_5_position: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [ 486.08359999999999, 1.4484999999999999, 318.1397 ]
+config_5_quaternion: !!opencv-matrix
+   rows: 4
+   cols: 1
+   dt: d
+   data: [ 0.503, -0.58079999999999998, 0.4708, -0.43369999999999997 ]
+config_5_image: "calib_images/calib_5.jpg"
+config_6_position: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [ 469.41140000000001, 59.881399999999999, 319.01459999999997 ]
+config_6_quaternion: !!opencv-matrix
+   rows: 4
+   cols: 1
+   dt: d
+   data: [ 0.65200000000000002, -0.35449999999999998,
+       0.65749999999999997, -0.13039999999999999 ]
+config_6_image: "calib_images/calib_6.jpg"
+config_7_position: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [ 432.02339999999998, -17.777699999999999, 359.33159999999998 ]
+config_7_quaternion: !!opencv-matrix
+   rows: 4
+   cols: 1
+   dt: d
+   data: [ 0.69130000000000003, -0.57169999999999999,
+       0.41870000000000002, -0.1411 ]
+config_7_image: "calib_images/calib_7.jpg"
+config_8_position: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [ 422.44119999999998, -4.5437000000000003, 352.93180000000001 ]
+config_8_quaternion: !!opencv-matrix
+   rows: 4
+   cols: 1
+   dt: d
+   data: [ 0.69230000000000003, -0.45379999999999998,
+       0.55610000000000004, 0.074099999999999999 ]
+config_8_image: "calib_images/calib_8.jpg"
+config_9_position: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [ 524.75419999999997, 6.7218999999999998, 390.0548 ]
+config_9_quaternion: !!opencv-matrix
+   rows: 4
+   cols: 1
+   dt: d
+   data: [ 0.66990000000000005, -0.41170000000000001,
+       0.48060000000000003, -0.38829999999999998 ]
+config_9_image: "calib_images/calib_9.jpg"
+config_10_position: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [ 476.23439999999999, 18.424399999999999, 299.46890000000002 ]
+config_10_quaternion: !!opencv-matrix
+   rows: 4
+   cols: 1
+   dt: d
+   data: [ 0.61460000000000004, -0.52059999999999995,
+       0.54259999999999997, -0.23830000000000001 ]
+config_10_image: "calib_images/calib_10.jpg"
+total_configs: 10
