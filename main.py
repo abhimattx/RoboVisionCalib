@@ -1,3 +1,5 @@
+##last update
+
 """
 Camera Calibration and Robot Control System - Main Entry Point
 
@@ -14,6 +16,10 @@ from calibration.calibrator import CalibrationProcess
 from calibration.handeye import perform_hand_eye_calibration
 import time
 import math
+from scipy.spatial.transform import Rotation as RR
+
+import camera.detection as detection 
+from config.settings import Config
 
 # Add new imports
 from camera.detection import ArUcoDetector
@@ -24,6 +30,88 @@ def create_directories():
     dirs = [Config.CALIB_DIR, Config.ARUCO_DIR, Config.CIRCLE_DIR]
     for directory in dirs:
         os.makedirs(directory, exist_ok=True)
+
+def quaternion_multiply(quaternion1, quaternion0):
+    """
+    Multiply two quaternions [w, x, y, z]
+    This can be used to combine rotations
+    """
+    w0, x0, y0, z0 = quaternion0
+    w1, x1, y1, z1 = quaternion1
+    return np.array([
+        w1*w0 - x1*x0 - y1*y0 - z1*z0,  # w
+        w1*x0 + x1*w0 + y1*z0 - z1*y0,  # x
+        w1*y0 - x1*z0 + y1*w0 + z1*x0,  # y
+        w1*z0 + x1*y0 - y1*x0 + z1*w0   # z
+    ], dtype=np.float64)
+
+def verify_top_approach(quaternion):
+    """
+    Verify that the quaternion will result in a top-down approach.
+    
+    Args:
+        quaternion: Quaternion in [w, x, y, z] format
+        
+    Returns:
+        bool: True if the approach is from the top, False otherwise
+    """
+    # Convert quaternion to rotation matrix
+    qw, qx, qy, qz = quaternion
+    rotation_matrix = np.array([
+        [1 - 2*qy*qy - 2*qz*qz, 2*qx*qy - 2*qz*qw, 2*qx*qz + 2*qy*qw],
+        [2*qx*qy + 2*qz*qw, 1 - 2*qx*qx - 2*qz*qz, 2*qy*qz - 2*qx*qw],
+        [2*qx*qz - 2*qy*qw, 2*qy*qz + 2*qx*qw, 1 - 2*qx*qx - 2*qy*qy]
+    ])
+    
+    # Extract z-axis direction (third column) - this is the approach direction
+    z_axis = rotation_matrix[:, 2]
+    
+    # Check if z-axis points downward (negative Z in base frame)
+    # For a perfect top-down approach, z_axis[2] should be close to -1
+    z_down = z_axis[2] < -0.9  # Should be close to -1 for directly downward
+    
+    print(f"Approach direction check:")
+    print(f"Z-axis vector: [{z_axis[0]:.4f}, {z_axis[1]:.4f}, {z_axis[2]:.4f}]")
+    print(f"Is top-down approach: {z_down}")
+    
+    return z_down
+
+# Add this function before main() function:
+def convert_to_z_up_orientation(rvec, tvec):
+    """
+    Convert ArUco marker pose (where Z points toward camera) to Z-up orientation
+    where Z points upward and X/Y lie in the horizontal plane.
+    
+    Args:
+        rvec: Rotation vector in camera frame
+        tvec: Translation vector in camera frame
+        
+    Returns:
+        rvec_z_up: Rotation vector with Z-up orientation
+        tvec_z_up: Translation vector in Z-up frame
+    """
+    # Convert rotation vector to rotation matrix
+    R_marker2cam, _ = cv2.Rodrigues(rvec)
+    
+    # Define the rotation to convert from marker's orientation (Z toward camera)
+    # to Z-up orientation (90 degree rotation around X-axis)
+    # This makes the marker's Z point upward
+    R_z_up = np.array([
+        [1, 0, 0],
+        [0, 0, -1],
+        [0, 1, 0]
+    ])
+    
+    # Apply the rotation to the marker's orientation
+    R_z_up_marker2cam = R_marker2cam @ R_z_up
+    
+    # Convert back to rotation vector
+    rvec_z_up, _ = cv2.Rodrigues(R_z_up_marker2cam)
+    
+    # Translation remains the same in this case
+    tvec_z_up = tvec.copy()
+    
+    return rvec_z_up, tvec_z_up
 
 def main():
     """Main program entry point."""
@@ -188,18 +276,34 @@ def main():
                     if marker_poses:
                         for marker_id, (rvec, tvec) in marker_poses.items():
                             try:
-                                # Draw 3D axes
+                                # Draw original 3D axes (camera frame, Z toward camera)
                                 cv2.drawFrameAxes(display_frame, camera_matrix, dist_coeffs, rvec, tvec, marker_size/2)
                                 
-                                # Add text with position information
+                                # Convert to Z-up orientation
+                                rvec_z_up, tvec_z_up = convert_to_z_up_orientation(rvec, tvec)
+                                
+                                # Draw Z-up axes in a different position (slightly offset for visibility)
+                                tvec_offset = tvec.copy()
+                                tvec_offset[0] += 10  # Offset in X direction
+                                cv2.drawFrameAxes(display_frame, camera_matrix, dist_coeffs, rvec_z_up, tvec_offset, marker_size/2)
+                                
+                                # Add position info - fix the array indexing issue
                                 idx = np.where(ids == marker_id)[0]
                                 if len(idx) > 0:
                                     marker_idx = idx[0]
                                     corner = corners[marker_idx][0][0]
                                     text_pos = (int(corner[0]), int(corner[1] - 10))
-                                    text = f"ID:{marker_id} x:{float(tvec[0]):.1f} y:{float(tvec[1]):.1f} z:{float(tvec[2]):.1f}"
-                                    cv2.putText(display_frame, text, text_pos,
+                                    
+                                    # Original pose info
+                                    text1 = f"ID:{marker_id} Cam: x:{float(tvec[0][0]):.1f} y:{float(tvec[1][0]):.1f} z:{float(tvec[2][0]):.1f}"
+                                    cv2.putText(display_frame, text1, text_pos,
                                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                                    
+                                    # Z-up pose info (slightly below)
+                                    text2 = f"Z-up: x:{float(tvec_z_up[0][0]):.1f} y:{float(tvec_z_up[1][0]):.1f} z:{float(tvec_z_up[2][0]):.1f}"
+                                    cv2.putText(display_frame, text2, (text_pos[0], text_pos[1] + 20),
+                                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 100, 255), 2)
+                                    
                             except Exception as e:
                                 print(f"Error drawing axes for marker {marker_id}: {e}")
                     
@@ -207,7 +311,12 @@ def main():
                     if frame_count % 10 == 0:
                         print(f"Detected {len(ids)} markers:")
                         for marker_id, (rvec, tvec) in marker_poses.items():
-                            print(f"  Marker {marker_id}: Position (mm) = [{float(tvec[0]):.1f}, {float(tvec[1]):.1f}, {float(tvec[2]):.1f}]")
+                            # Original camera frame pose
+                            print(f"  Marker {marker_id}: Camera frame (mm) = [{float(tvec[0][0]):.1f}, {float(tvec[1][0]):.1f}, {float(tvec[2][0]):.1f}]")
+                            
+                            # Z-up frame pose
+                            rvec_z_up, tvec_z_up = convert_to_z_up_orientation(rvec, tvec)
+                            print(f"  Marker {marker_id}: Z-up frame (mm) = [{float(tvec_z_up[0][0]):.1f}, {float(tvec_z_up[1][0]):.1f}, {float(tvec_z_up[2][0]):.1f}]")
                 else:
                     cv2.putText(display_frame, "No markers detected", (10, 60), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
@@ -499,7 +608,7 @@ def main():
                                         
                                         # Highlight target marker
                                         if mid == marker_id:
-                                            text = f"TARGET ID:{mid} x:{float(tvec[0]):.1f} y:{float(tvec[1]):.1f} z:{float(tvec[2]):.1f}"
+                                            text = f"TARGET ID:{mid} x:{float(tvec[0]):.1f} y:{float(tvec[1])::.1f} z:{float(tvec[2]):.1f}"
                                             cv2.putText(display_frame, text, text_pos,
                                                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
                                             
@@ -507,7 +616,7 @@ def main():
                                             if any(marker_to_object):
                                                 # Calculate grasp position in camera frame
                                                 R, _ = cv2.Rodrigues(rvec)
-                                                grasp_point = tvec + R @ marker_to_object.reshape(3, 1)
+                                                grasp_point = tvec + R @ marker_to_object.reshape(3,1)
                                                 
                                                 # Project grasp point to image
                                                 grasp_2d, _ = cv2.projectPoints(grasp_point, np.zeros(3), np.zeros(3), 
@@ -574,32 +683,7 @@ def run_automated_pick_and_place():
     print("\nAutomated Pick and Place")
     print("----------------------")
     
-    # Check if calibration files exist
-    if not os.path.exists("camera_calibration.yaml"):
-        print("Error: Camera calibration not found. Please run camera calibration first.")
-        return
-        
-    if not os.path.exists("hand_eye_calibration.yaml"):
-        print("Error: Hand-eye calibration not found. Please run hand-eye calibration first.")
-        return
-    
-    # Initialize components
-    camera = CameraCapture()
-    print("Initializing camera...")
-    if not camera.start():
-        print("Failed to initialize camera")
-        return
-    
-    # Test camera by getting a test frame
-    test_frame = camera.get_frame()
-    if test_frame is None:
-        print("Camera initialized but no frames available. Check camera connections.")
-        camera.stop()
-        return
-    
-    print(f"Camera test successful. Got frame of size {test_frame.shape}")
-
-    # Load camera calibration
+    # Load camera calibration parameters (camera_matrix, dist_coeffs)
     try:
         fs = cv2.FileStorage("camera_calibration.yaml", cv2.FILE_STORAGE_READ)
         camera_matrix = fs.getNode('camera_matrix').mat()
@@ -608,10 +692,9 @@ def run_automated_pick_and_place():
         print("Loaded camera calibration successfully")
     except Exception as e:
         print(f"Error loading camera calibration: {e}")
-        camera.stop()
         return
     
-    # Load hand-eye calibration
+    # Load hand-eye calibration parameters (T_cam2base)
     try:
         fs = cv2.FileStorage("hand_eye_calibration.yaml", cv2.FILE_STORAGE_READ)
         T_cam2base = fs.getNode('transform').mat()
@@ -619,312 +702,246 @@ def run_automated_pick_and_place():
         print("Loaded hand-eye calibration successfully")
     except Exception as e:
         print(f"Error loading hand-eye calibration: {e}")
-        camera.stop()
         return
+    
+    # Initialize camera
+    camera = CameraCapture()
+    print("Initializing camera...")
+    if not camera.start():
+        print("Failed to initialize camera")
+        return
+    
+    # Initialize aruco detector with 5x5_50 dictionary
+    dict_type = cv2.aruco.DICT_5X5_50
+    marker_size = 30.0  # marker size in mm
+    detector = ArUcoDetector(dict_type=dict_type, marker_size=marker_size)
     
     # Create a window for visualization
     cv2.namedWindow("Detection", cv2.WINDOW_NORMAL)
     cv2.resizeWindow("Detection", 1024, 768)
     
-    # Updated dictionary types for OpenCV 4.11.0+
-    dict_types = [
-        cv2.aruco.DICT_5X5_50,  # Start with your marker type (5x5)
-        cv2.aruco.DICT_4X4_50,
-        cv2.aruco.DICT_6X6_250,
-        cv2.aruco.DICT_7X7_50
-    ]
-    dict_names = ["5x5_50", "4x4_50", "6x6_250", "7x7_50"]
+    # Define the object points (3D points in marker coordinate system)
+    # For a marker, these are the four corners in counter-clockwise order
+    # with Z=0, measured from the center
+    objPoints = np.array([
+        [Config.marker_size/2, -Config.marker_size/2, -Config.CUBE_SIZE/2],   # Top-left corner
+        [Config.marker_size/2, Config.marker_size/2, -Config.CUBE_SIZE/2],    # Top-right corner
+        [-Config.marker_size/2, +Config.marker_size/2, -Config.CUBE_SIZE/2],   # Bottom-right corner
+        [-Config.marker_size/2, -Config.marker_size/2, -Config.CUBE_SIZE/2],  # Bottom-left corner
+    ], dtype=np.float32)
+      # Initialize robot
+    robot = RobotController()
+    print("Connecting to robot...")
+    if not robot.connect():
+        print("Failed to connect to robot. Continuing in simulation mode.")
+    else:
+        print("Robot connected successfully")
     
-    print("Testing different ArUco dictionaries...")
+    min_safe_z = 70  # Minimum safe Z height in mm
+    max_x = 1000      # Maximum X coordinate
+    min_x = -0     # Minimum X coordinate
+    max_y = 400     # Maximum Y coordinate
+    min_y = -400.0     # Minimum Y coordinate
     
-    # Define cube offset parameters - tune these values based on your setup
-    # Offset from marker center to object center for grasping
-    marker_to_object_offset = np.array([0.0, 0.0, 15.0])  # [x, y, z] in mm
+    print("\nStarting detection loop. Press 'q' to exit.")
     
-    # Define approach and retreat distances
-    approach_distance = 50.0  # mm above the target before final approach
-    retreat_distance = 50.0   # mm above the picked object before moving to place
-    
-    # Gripper parameters
-    gripper_offset = np.array([0.0, 0.0, 15.0])  # Offset from tool center to gripper tip
-    
-    # Safety parameters
-    minimum_safe_z = 30  # Minimum safe Z height in mm
-    
-    for dict_idx, dict_type in enumerate(dict_types):
-        # Initialize ArUco detector with current dictionary - use your correct marker size (30mm)
-        print(f"Trying dictionary: {dict_names[dict_idx]}")
-        detector = ArUcoDetector(dict_type=dict_type, marker_size=30.0)
+    while True:
+        # Grab image
+        frame = camera.get_frame()
+        if frame is None:
+            print("Failed to capture frame")
+            time.sleep(0.2)
+            continue
         
-        # Marker detection parameters
-        max_attempts = 10  # Fewer attempts per dictionary
+        # Update image in window
+        cv2.imshow("Detection", frame)
         
-        # Capture several frames for analysis with this dictionary
-        print(f"Looking for markers with dictionary {dict_names[dict_idx]}...")
+        # Detect aruco markers in the image
+        corners, ids, rejected = detector.detect_markers(frame)
         
-        # Try to detect a marker
-        for attempt in range(max_attempts):
-            frame = camera.get_frame()
-            if frame is None:
-                print(f"No frame available (attempt {attempt+1}/{max_attempts})")
-                time.sleep(0.2)
-                continue
-                
-            # Try different image processing to improve detection
+        # Print number of detected aruco markers in the terminal
+        if ids is not None:
+            num_markers = len(ids)
+            print(f"Detected {num_markers} ArUco markers with IDs: {ids.flatten()}")
+        else:
+            num_markers = 0
+            print("No ArUco markers detected")
+        
+        if num_markers > 0:
+            # Print the lowest ID in the detected markers in the terminal
+            lowest_id = int(np.min(ids))
+            print(f"Lowest marker ID: {lowest_id}")
+            
+            # Find the marker with the lowest ID
+            idx = np.where(ids == lowest_id)[0][0]
+            marker_corners = corners[idx]
+            
+            # Estimate the pose using solvePnP using camera parameters
+            ret, rvec, tvec = cv2.solvePnP(
+                objPoints, marker_corners, 
+                camera_matrix, dist_coeffs
+            )
+            
+            # Convert rotation vector to rotation matrix
+            R, _ = cv2.Rodrigues(rvec)
+            print(f"Rotation vector: {rvec.flatten()}")
+            print(f"Translation vector: {tvec.flatten()}")
+            print(f"Rotation matrix: {R}")
+
+
+        
+
+            
+            # Draw frame axes into imagePosition out of allowed limits, skipping robot command
             display_frame = frame.copy()
-            processed_frames = []
+            cv2.drawFrameAxes(display_frame, camera_matrix, dist_coeffs, rvec, tvec, marker_size/2)
             
-            # 1. Original frame
-            processed_frames.append(("Original", frame.copy()))
+            # Draw detected marker
+            cv2.aruco.drawDetectedMarkers(display_frame, corners, ids)
             
-            # 2. Grayscale conversion
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            processed_frames.append(("Grayscale", cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)))
-            
-            # 3. Adaptive threshold
-            thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                        cv2.THRESH_BINARY, 11, 2)
-            processed_frames.append(("Threshold", cv2.cvtColor(thresh, cv2.COLOR_GRAY2BGR)))
-            
-            # 4. Enhanced contrast
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-            enhanced = clahe.apply(gray)
-            processed_frames.append(("Enhanced", cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)))
-            
-            # Show all processing methods
-            montage_width = 2
-            montage_height = math.ceil(len(processed_frames) / montage_width)
-            montage = np.zeros((frame.shape[0] * montage_height, frame.shape[1] * montage_width, 3), dtype=np.uint8)
-            
-            for i, (label, proc_frame) in enumerate(processed_frames):
-                row = i // montage_width
-                col = i % montage_width
-                montage[row*frame.shape[0]:(row+1)*frame.shape[0], 
-                       col*frame.shape[1]:(col+1)*frame.shape[1]] = proc_frame
-                cv2.putText(montage, label, (col*frame.shape[1] + 10, row*frame.shape[0] + 30), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            
-            # Try detection on all processed images - For OpenCV 4.11.0+
-            best_result = None
-            
-            for label, proc_frame in processed_frames:
-                # Convert back to grayscale if needed for detection
-                if len(proc_frame.shape) == 3:
-                    detect_frame = cv2.cvtColor(proc_frame, cv2.COLOR_BGR2GRAY)
-                else:
-                    detect_frame = proc_frame
-                    
-                # Updated ArUco detection for OpenCV 4.11.0+
-                dictionary = cv2.aruco.getPredefinedDictionary(dict_type)
-                parameters = cv2.aruco.DetectorParameters()
-                parameters.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
-                
-                # Create detector
-                detector_aruco = cv2.aruco.ArucoDetector(dictionary, parameters)
-                
-                # Detect markers
-                corners, ids, rejected = detector_aruco.detectMarkers(detect_frame)
-                
-                if ids is not None and len(ids) > 0:
-                    print(f"Found marker(s) with {label} processing!")
-                    best_result = (detect_frame, corners, ids, rejected, label)
-                    break
-            
-            # Display results
-            display_frame = montage.copy()
-            cv2.putText(display_frame, f"Dictionary: {dict_names[dict_idx]} - Attempt {attempt+1}/{max_attempts}", 
-                       (10, montage.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            # Update image in window
             cv2.imshow("Detection", display_frame)
-            key = cv2.waitKey(100) & 0xFF
-            if key == ord('q'):
-                print("Detection cancelled by user")
-                camera.stop()
-                cv2.destroyAllWindows()
-                return
             
-            # Process detection results if found - For OpenCV 4.11.0+
-            if best_result:
-                detect_frame, corners, ids, rejected, method = best_result
-                
-                print(f"Success! Found marker(s) with IDs: {ids.flatten()} using {method} processing")
-                
-                # Get marker pose in camera frame
-                marker_id = ids[0][0]  # Use the first detected marker
-                
-                # Use the detector's pose estimation with the right frame - For OpenCV 4.11.0+
-                if method == "Original":
-                    # Use original frame for pose estimation
-                    marker_poses = detector.estimate_poses(corners, ids, camera_matrix, dist_coeffs)
-                else:
-                    # Need to re-detect on original frame for proper pose estimation
-                    gray_orig = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                    
-                    # Updated ArUco detection
-                    dictionary = cv2.aruco.getPredefinedDictionary(dict_type)
-                    parameters = cv2.aruco.DetectorParameters()
-                    parameters.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
-                    detector_aruco = cv2.aruco.ArucoDetector(dictionary, parameters)
-                    corners_orig, ids_orig, _ = detector_aruco.detectMarkers(gray_orig)
-                    
-                    marker_poses = detector.estimate_poses(corners_orig, ids_orig, camera_matrix, dist_coeffs)
-                
-                if not marker_id in marker_poses:
-                    print(f"Error: Could not estimate pose for marker {marker_id}")
-                    continue
-                    
-                rvec, tvec = marker_poses[marker_id]
-                
-                # Draw the detected marker on a result frame
-                result_frame = frame.copy()
-                if method == "Original":
-                    result_frame = detector.draw_markers(result_frame, corners, ids)
-                else:
-                    # Use original frame corners
-                    result_frame = detector.draw_markers(result_frame, corners_orig, ids_orig)
-                    
-                cv2.drawFrameAxes(result_frame, camera_matrix, dist_coeffs, rvec, tvec, 25)
-                
-                # Connect to the robot
-                robot = RobotController()
-                print("Connecting to robot...")
-                if not robot.connect():
-                    print("Failed to connect to robot.")
-                    camera.stop()
-                    cv2.destroyAllWindows()
-                    return
-                
-                print("Robot connected successfully")
-                
-                # Convert marker position to robot base frame
-                from scipy.spatial.transform import Rotation as R
-                
-                R_marker, _ = cv2.Rodrigues(rvec)
-                T_cam2marker = np.eye(4)
-                T_cam2marker[:3, :3] = R_marker
-                T_cam2marker[:3, 3] = tvec.flatten()
-
-                # Build homogeneous offset in marker frame (grasp point relative to marker center)
-                object_point_in_marker = np.array([
-                    marker_to_object_offset[0],
-                    marker_to_object_offset[1],
-                    marker_to_object_offset[2],
-                    1.0  # Homogeneous coordinate
-                ])
+            # Transform to robot's coordinate frame
+            T_cam2marker = np.eye(4)
+            T_cam2marker[:3, :3] = R
+            T_cam2marker[:3, 3] = tvec.flatten()
+            
+            # Transform marker to robot base frame
+            T_base2marker = T_cam2base @ T_cam2marker
+              # Extract position and rotation in robot base frame
+            position = T_base2marker[:3, 3]
+            rotation_matrix = T_base2marker[:3, :3]
+            
+            z_correction = np.array([0.9961947, 0, 0, 0.0871557])  # [w, x, y, z] format - ~10° Z rotation
+            # Convert z_correction quaternion to rotation matrix
+            qw, qx, qy, qz = z_correction
+            z_correction_matrix = np.array([
+                [1 - 2*qy*qy - 2*qz*qz, 2*qx*qy - 2*qz*qw, 2*qx*qz + 2*qy*qw],
+                [2*qx*qy + 2*qz*qw, 1 - 2*qx*qx - 2*qz*qz, 2*qy*qz - 2*qx*qw],
+                [2*qx*qz - 2*qy*qw, 2*qy*qz + 2*qx*qw, 1 - 2*qx*qx - 2*qy*qy]
+            ])
+            print(f"Z correction matrix: {z_correction_matrix}")
+    
+            a = np.radians(50)
+            z_correction_matrix= np.array([[np.cos(a),-np.sin(a),0],[np.sin(a),np.cos(a),0],[0,0,1]])
+            rotation_matrix = z_correction_matrix @ rotation_matrix 
+            # Print the original rotation matrix for verification   
+            
 
 
-                
-                # Calculate the object position with the marker_to_object_offset
-                # Apply the offset in marker frame
-                object_point_in_marker = np.array([marker_to_object_offset[0], marker_to_object_offset[1], marker_to_object_offset[2], 1])
-                object_point_in_camera = T_cam2marker @ object_point_in_marker
-                
-                # Transform into robot base frame
-                object_point_in_base = T_cam2base @ object_point_in_camera
-                
-                # Extract target position for grasping
-                target_position = object_point_in_base[:3]
-                
-                # Apply safety check for Z coordinate
-                if target_position[2] < minimum_safe_z:
-                    print(f"Warning: Z coordinate too low ({target_position[2]:.2f}mm), adjusting to {minimum_safe_z}mm")
-                    target_position[2] = minimum_safe_z
-                
-                # Show current target on image with detailed coordinates
-                detailed_frame = result_frame.copy()
-                cv2.putText(detailed_frame, f"DETECTED POSITION:", (10, 210),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-                cv2.putText(detailed_frame, f"X: {target_position[0]:.2f} mm", (10, 240),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
-                cv2.putText(detailed_frame, f"Y: {target_position[1]:.2f} mm", (10, 270),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
-                cv2.putText(detailed_frame, f"Z: {target_position[2]:.2f} mm", (10, 300),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
-                cv2.putText(detailed_frame, "Press 'a' to adjust or 'c' to continue", (10, 330),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-                cv2.imshow("Position Adjustment", detailed_frame)
-                
-                # Always adjust position first
-                print("\n--- Position Adjustment Required ---")
-                print(f"Current target position: X={target_position[0]:.2f}, Y={target_position[1]:.2f}, Z={target_position[2]:.2f}")
-                
-                # Wait for key press to adjust or continue
-                key = cv2.waitKey(0) & 0xFF
-                
-                # If user wants to adjust
-                if key == ord('a'):
-                    # Add manual adjustment offsets
-                    try:
-                        x_offset = float(input("Enter X offset adjustment (mm): "))
-                        target_position[0] += x_offset
-                        
-                        z_offset = float(input("Enter Z offset adjustment (mm): "))
-                        target_position[2] += z_offset
-                        
-                        print(f"Adjusted target position: X={target_position[0]:.2f}, Y={target_position[1]:.2f}, Z={target_position[2]:.2f}")
-                        
-                        # Apply safety check again after adjustment
-                        if target_position[2] < minimum_safe_z:
-                            print(f"Warning: Z coordinate too low ({target_position[2]:.2f}mm), adjusting to {minimum_safe_z}mm")
-                            target_position[2] = minimum_safe_z
-                    except ValueError as e:
-                        print(f"Invalid input: {e}. Using detected position.")
-                        
-                cv2.destroyWindow("Position Adjustment")
-                
-                # Print detected and calculated positions
-                print(f"Marker position: [{tvec[0][0]:.2f}, {tvec[1][0]:.2f}, {tvec[2][0]:.2f}]")
-                print(f"Final target position: [{target_position[0]:.2f}, {target_position[1]:.2f}, {target_position[2]:.2f}]")
-                
-                # Display the positions on the result frame
-                cv2.putText(result_frame, f"Marker: [{tvec[0][0]:.1f}, {tvec[1][0]:.1f}, {tvec[2][0]:.1f}]", (10, 30),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
-                cv2.putText(result_frame, f"Target: [{target_position[0]:.1f}, {target_position[1]:.1f}, {target_position[2]:.1f}]", (10, 60),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                cv2.putText(result_frame, "Moving to pick position...", (10, 90), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                cv2.imshow("Detection Result", result_frame)
-                cv2.waitKey(1000)  # Show for 1 second
-                
-                # Use a downward-facing orientation for grasping
-                down_quaternion = np.array([0.0, 0.0, 1.0, 0.0])  # Tool Z pointing down
-                
-                # Send single pick command
-                print("Moving to pick position...")
+            # Convert corrected rotation matrix back to quaternion
+            corrected_r = RR.from_matrix(rotation_matrix)
+            corrected_quaternion_xyzw = corrected_r.as_quat()  # (x, y, z, w)
+            final_quaternion = np.array([
+                corrected_quaternion_xyzw[3],  # w
+                corrected_quaternion_xyzw[0],  # x
+                corrected_quaternion_xyzw[1],  # y
+                corrected_quaternion_xyzw[2]   # z
+            ])
+
+        
+            # Clamp position values to ensure they stay within limits
+            original_position = position.copy()
+            position[0] = max(min_x, min(max_x, position[0]))  # Clamp X
+            position[1] = max(min_y, min(max_y, position[1]))  # Clamp Y
+            position[2] = max(min_safe_z, position[2])         # Clamp Z
+            
+            # Check if clamping was applied
+            if not np.array_equal(original_position, position):
+                print(f"WARNING: Position was clamped to stay within limits:")
+                print(f"Original: [{original_position[0]:.2f}, {original_position[1]:.2f}, {original_position[2]:.2f}]")
+                print(f"Clamped: [{position[0]:.2f}, {position[1]:.2f}, {position[2]:.2f}]")
+            
+            # Print position and orientation in the terminal
+            print(f"Marker position in robot base frame: [{position[0]:.2f}, {position[1]:.2f}, {position[2]:.2f}]")
+            
+            # Convert rotation matrix to quaternion (for robot command)
+            '''
+            r = RR.from_matrix(rotation_matrix)
+            quaternion_xyzw = r.as_quat()  # (x, y, z, w)
+            quaternion_wxyz = np.array([quaternion_xyzw[3], quaternion_xyzw[0], quaternion_xyzw[1], quaternion_xyzw[2]])
+            
+            print(f"Quaternion in robot base frame: [{quaternion_wxyz[0]:.4f}, {quaternion_wxyz[1]:.4f}, {quaternion_wxyz[2]:.4f}, {quaternion_wxyz[3]:.4f}]")
+            '''
+            # Correct the error (rotation about Z-axis)
+            # Apply a 10-degree correction around the Z-axis
+            #z_correction = np.array([0.9961947, 0, 0, 0.0871557])  # [w, x, y, z] format - ~10° Z rotation
+            #corrected_quaternion = quaternion_wxyz
+            
+            
+            # Ensure Z-axis points downward
+            # Check if the Z-axis of the gripper points downward using the corrected quaternion
+
+
+
+            # Extract z-axis direction (third column) - this is the approach direction
+            z_axis = rotation_matrix[:, 2]
+            '''
+            # Print corrected position and orientation
+            print(f"Corrected quaternion: [{corrected_quaternion[0]:.4f}, {corrected_quaternion[1]:.4f}, {corrected_quaternion[2]:.4f}, {corrected_quaternion[3]:.4f}]")
+            print(f"Gripper Z-axis direction: [{z_axis[0]:.4f}, {z_axis[1]:.4f}, {z_axis[2]:.4f}]")
+              # Check if position is within limits and Z-axis is pointing downwards
+            '''
+            position_in_limits = True  # Position is already clamped to limits
+            
+            z_pointing_down = z_axis[2] < -0.9  # Z-axis should be close to -1 for pointing down
+            if position_in_limits and z_pointing_down:
+                print("Position is within limits and Z-axis is pointing downwards")
+                print("Sending command to robot...")
+                # Send to the robot
                 success = robot.send_position_command_simple(
-                    command_prefix="pick_", 
-                    position=target_position.reshape(3,1),
-                    quaternion=down_quaternion,
-                    timeout=40
+                    command_prefix="pick_",
+                    position=position.reshape(3,1),
+                    quaternion=final_quaternion,
+                    timeout=30
                 )
                 
-                if not success:
-                    print("Failed to reach pick position")
-                    cv2.putText(result_frame, "Pick position failed!", (10, 120),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                    cv2.imshow("Detection Result", result_frame)
-                    cv2.waitKey(2000)
-                    cv2.destroyAllWindows()
-                    camera.stop()
-                    return
+                # Wait for the response in while loop
+                if success:
+                    print("Command sent successfully. Waiting for robot movement...")
+                    time_sent = time.time()
+                    timeout = 15  # seconds
+                    
+                    # Wait for robot response (this would be expanded in a real implementation)
+                    while time.time() - time_sent < timeout:
+                        print("Waiting for robot to complete movement...")
+                        time.sleep(1)
+                        # In a real implementation, you would check for actual robot status here
+                    
+                    print("Robot movement completed or timed out")
                 else:
-                    print("Pick operation completed successfully!")
-                    cv2.putText(result_frame, "Pick operation successful!", (10, 120),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                
-                # Display final result
-                cv2.imshow("Detection Result", result_frame)
-                cv2.waitKey(3000)  # Show result for 3 seconds
-                cv2.destroyAllWindows()
-                camera.stop()
-                print("Automated pick operation complete")
-                return
+                    print("Failed to send command to robot")
+            else:
+                if not position_in_limits:
+                    print("Position out of allowed limits, skipping robot command")
+                if not z_pointing_down:
+                    print("Z-axis not pointing downwards, skipping robot command")
         
-        print(f"No markers found with dictionary {dict_names[dict_idx]}")
+        # Check for key press to exit
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            print("Exiting detection loop")
+            break
     
-    print("Failed to detect any markers with all dictionaries")
+    # Clean up
     cv2.destroyAllWindows()
     camera.stop()
+    robot.disconnect()
     print("Automated pick and place operation complete")
+
+# Define a fallback "safe" down quaternion for when the calculated one is unsafe
+# This quaternion is defined to ensure the robot gripper points exactly downward
+# We're using the identity orientation (gripper Z-axis aligned with world Z-axis) and then rotating 180° around X-axis
+# This ensures Z-axis of gripper points exactly opposite to world Z-axis (downward)
+# Format: [w, x, y, z]
+down_quaternion = np.array([0.0, 1.0, 0.0, 0.0], dtype=np.float64)  # 180° rotation around X axis
+down_quaternion /= np.linalg.norm(down_quaternion)  # Ensure it's normalized
+
+# Set safety parameters
+MIN_SAFE_Z_HEIGHT = 75.0  # Minimum safe height above the table in mm
+GRIPPER_OPEN_WIDTH = 120  # Open width in mm
+GRIPPER_CLOSED_WIDTH = 30  # Closed width in mm
 
 if __name__ == "__main__":
     main()

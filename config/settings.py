@@ -7,6 +7,11 @@ from cv2 import aruco
 
 class Config:
     """Global configuration parameters"""
+
+    #cube size
+    CUBE_SIZE = 40  # mm
+    #marker size
+    marker_size=30.0
     # Display settings
     WAIT_TIME = 1000  # ms
     WINDOW_WIDTH = 800
@@ -48,7 +53,7 @@ class CalibrationConfig:
     PATTERN_CHARUCO = 'charuco'
     
     # Timing
-    ROBOT_PAUSE_TIME = 5  # seconds between movements
+    ROBOT_PAUSE_TIME = 3  # seconds between movements
     IMAGE_CAPTURE_DELAY = 0.5  # seconds after robot stops
     
     # File paths

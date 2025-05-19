@@ -90,10 +90,10 @@ class ArUcoDetector:
             # For OpenCV 4.11.0+, we need to use the solvePnP approach
             # First, define the 3D coordinates of the marker corners in the marker coordinate system
             objPoints = np.array([
-                [-self.marker_size/2, self.marker_size/2, 0],   # Top-left corner
-                [self.marker_size/2, self.marker_size/2, 0],    # Top-right corner
-                [self.marker_size/2, -self.marker_size/2, 0],   # Bottom-right corner
-                [-self.marker_size/2, -self.marker_size/2, 0],  # Bottom-left corner
+                [self.marker_size/2, -self.marker_size/2, -Config.CUBE_SIZE/2],   # Top-left corner
+                [self.marker_size/2, self.marker_size/2, -Config.CUBE_SIZE/2],    # Top-right corner
+                [-self.marker_size/2, +self.marker_size/2, -Config.CUBE_SIZE/2],   # Bottom-right corner
+                [-self.marker_size/2, -self.marker_size/2, -Config.CUBE_SIZE/2],  # Bottom-left corner
             ], dtype=np.float32)
             
             # The 2D coordinates are already in marker_corners

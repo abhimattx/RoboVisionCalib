@@ -42,7 +42,7 @@ class RobotController:
                     print(f"Ping response: {response}")
                     response_received = True
                     break
-                time.sleep(0.5)
+                time.sleep(0.3) 
             
             if not response_received:
                 print("Warning: No response to ping command, but continuing...")
@@ -157,7 +157,7 @@ class RobotController:
                     
             except Exception as e:
                 print(f"Error while waiting: {str(e)}")
-                time.sleep(0.5)
+                time.sleep(0.3)
         
         print(f"Timeout waiting for position data. Buffer: {buffer}")
         return None
