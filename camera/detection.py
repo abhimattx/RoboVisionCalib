@@ -100,16 +100,23 @@ class ArUcoDetector:
             imgPoints = marker_corners.reshape(4, 2)
             
             # Use solvePnP to get the pose
-            success, rvec, tvec = cv2.solvePnP(
-                objPoints, 
-                imgPoints, 
-                camera_matrix, 
-                dist_coeffs,
-                flags=cv2.SOLVEPNP_IPPE_SQUARE
-            )
-            
-            if success:
-                # Store pose
-                marker_poses[marker_id] = (rvec, tvec)
+            try:
+                success, rvec, tvec = cv2.solvePnP(
+                    objPoints, 
+                    imgPoints, 
+                    camera_matrix, 
+                    dist_coeffs,
+                    flags=cv2.SOLVEPNP_IPPE_SQUARE
+                )
+                
+                if success:
+                    # Store pose
+                    marker_poses[marker_id] = (rvec, tvec)
+                else:
+                    print(f"Warning: Failed to estimate pose for marker {marker_id}")
+            except cv2.error as e:
+                print(f"OpenCV error estimating pose for marker {marker_id}: {e}")
+            except Exception as e:
+                print(f"Unexpected error estimating pose for marker {marker_id}: {e}")
                 
         return marker_poses
