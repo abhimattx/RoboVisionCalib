@@ -218,7 +218,7 @@ The system achieves:
 
 ## 📞 Contact
 
-For questions or support, please contact [your.email@example.com].
+For questions or support, please contact [abhimattx@gmail.com].
 
 ### Pick-and-Place Operation
 
